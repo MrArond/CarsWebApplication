@@ -1,7 +1,7 @@
+using Cars.Application.Cars;
 using Cars.Domain;
-using Cars.Infrastructure;
+using MediatR;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace CarsWebApplication.Controllers;
 
@@ -9,73 +9,56 @@ namespace CarsWebApplication.Controllers;
 [Route("api/[controller]")]
 public class CarsController : ControllerBase
 {
-    private readonly DataContext _context;
+    private readonly ISender _sender;
 
-    public CarsController(DataContext context)
+    public CarsController(ISender sender)
     {
-        _context = context;
+        _sender = sender;
     }
 
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<Car>>> GetCars()
+    public async Task<ActionResult<List<Car>>> GetCars()
     {
-        var cars = await _context.Cars
-            .AsNoTracking()
-            .ToListAsync();
-
-        return Ok(cars);
+        return await _sender.Send(new GetCarList.Query());
     }
 
     [HttpGet("{id}")]
     public async Task<ActionResult<Car>> GetCar(string id)
     {
-        var car = await _context.Cars
-            .AsNoTracking()
-            .FirstOrDefaultAsync(c => c.id == id);
+        var car = await _sender.Send(new Details.Query { Id = id });
 
         if (car is null)
         {
             return NotFound();
         }
 
-        return Ok(car);
+        return car;
     }
 
     [HttpPost]
     public async Task<ActionResult<Car>> CreateCar(Car car)
     {
-        _context.Cars.Add(car);
-        await _context.SaveChangesAsync();
+        var result = await _sender.Send(new Create.Command { Car = car });
 
-        return CreatedAtAction(nameof(GetCar), new { id = car.id }, car);
+        return CreatedAtAction(
+            nameof(GetCar),
+            new { id = result.id },
+            result);
     }
 
     [HttpPut("{id}")]
     public async Task<IActionResult> UpdateCar(string id, Car car)
     {
-        var existingCar = await _context.Cars.FindAsync(id);
+        var result = await _sender.Send(new Edit.Command
+        {
+            Id = id,
+            Car = car
+        });
 
-        if (existingCar is null)
+        if (!result)
         {
             return NotFound();
         }
-
-        if (id != car.id)
-        {
-            return BadRequest("Identyfikator w adresie musi być zgodny z identyfikatorem w treści żądania.");
-        }
-
-        existingCar.brand = car.brand;
-        existingCar.model = car.model;
-        existingCar.DoorsNumber = car.DoorsNumber;
-        existingCar.LuggageCapacity = car.LuggageCapacity;
-        existingCar.EngineCapacity = car.EngineCapacity;
-        existingCar.FuelType = car.FuelType;
-        existingCar.ProductionDate = car.ProductionDate;
-        existingCar.AverageFuelConsumption = car.AverageFuelConsumption;
-        existingCar.BodyType = car.BodyType;
-
-        await _context.SaveChangesAsync();
 
         return NoContent();
     }
@@ -83,15 +66,12 @@ public class CarsController : ControllerBase
     [HttpDelete("{id}")]
     public async Task<IActionResult> DeleteCar(string id)
     {
-        var car = await _context.Cars.FindAsync(id);
+        var result = await _sender.Send(new Delete.Command { Id = id });
 
-        if (car is null)
+        if (!result)
         {
             return NotFound();
         }
-
-        _context.Cars.Remove(car);
-        await _context.SaveChangesAsync();
 
         return NoContent();
     }
